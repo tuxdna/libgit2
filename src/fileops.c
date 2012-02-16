@@ -10,25 +10,19 @@
 
 int git_futils_mkpath2file(const char *file_path, const mode_t mode)
 {
-	int error;
+	int result = 0;
 	git_buf target_folder = GIT_BUF_INIT;
 
-	error = git_path_dirname_r(&target_folder, file_path);
-	if (error < GIT_SUCCESS) {
-		git_buf_free(&target_folder);
-		return git__throw(GIT_EINVALIDPATH, "Failed to recursively build `%s` tree structure. Unable to parse parent folder name", file_path);
-	} else {
-		/* reset error */
-		error = GIT_SUCCESS;
-	}
+	if (git_path_dirname_r(&target_folder, file_path) < 0)
+		return -1;
 
 	/* Does the containing folder exist? */
-	if (git_path_isdir(target_folder.ptr) != GIT_SUCCESS)
+	if (git_path_isdir(target_folder.ptr) == false)
 		/* Let's create the tree structure */
-		error = git_futils_mkdir_r(target_folder.ptr, NULL, mode);
+		result = git_futils_mkdir_r(target_folder.ptr, NULL, mode);
 
 	git_buf_free(&target_folder);
-	return error;
+	return result;
 }
 
 int git_futils_mktmp(git_buf *path_out, const char *filename)
@@ -39,33 +33,50 @@ int git_futils_mktmp(git_buf *path_out, const char *filename)
 	git_buf_puts(path_out, "_git2_XXXXXX");
 
 	if (git_buf_oom(path_out))
-		return git__rethrow(git_buf_lasterror(path_out),
-			"Failed to create temporary file for %s", filename);
+		return -1;
 
-	if ((fd = p_mkstemp(path_out->ptr)) < 0)
-		return git__throw(GIT_EOSERR, "Failed to create temporary file %s", path_out->ptr);
+	if ((fd = p_mkstemp(path_out->ptr)) < 0) {
+		giterr_set(GITERR_OS,
+			"Failed to create temporary file '%s': %s", path_out->ptr, strerror(errno));
+		return -1;
+	}
 
 	return fd;
 }
 
 int git_futils_creat_withpath(const char *path, const mode_t dirmode, const mode_t mode)
 {
-	if (git_futils_mkpath2file(path, dirmode) < GIT_SUCCESS)
-		return git__throw(GIT_EOSERR, "Failed to create file %s", path);
+	int fd;
 
-	return p_creat(path, mode);
+	if (git_futils_mkpath2file(path, dirmode) < 0)
+		return -1;
+
+	fd = p_creat(path, mode);
+	if (fd < 0) {
+		giterr_set(GITERR_OS,
+			"Failed to create file '%s': %s", path, strerror(errno));
+		return -1;
+	}
+
+	return fd;
 }
 
 int git_futils_creat_locked(const char *path, const mode_t mode)
 {
 	int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY | O_EXCL, mode);
-	return fd >= 0 ? fd : git__throw(GIT_EOSERR, "Failed to create locked file. Could not open %s", path);
+	if (fd < 0) {
+		giterr_set(GITERR_OS,
+			"Failed to create locked file '%s': %s", path, strerror(errno));
+		return -1;
+	}
+
+	return fd;
 }
 
 int git_futils_creat_locked_withpath(const char *path, const mode_t dirmode, const mode_t mode)
 {
-	if (git_futils_mkpath2file(path, dirmode) < GIT_SUCCESS)
-		return git__throw(GIT_EOSERR, "Failed to create locked file %s", path);
+	if (git_futils_mkpath2file(path, dirmode) < 0)
+		return -1;
 
 	return git_futils_creat_locked(path, mode);
 }
@@ -91,52 +102,52 @@ int git_futils_readbuffer_updated(git_fbuffer *obj, const char *path, time_t *mt
 	if (updated != NULL)
 		*updated = 0;
 
-	if (p_stat(path, &st) < 0)
-		return git__throw(GIT_ENOTFOUND, "Failed to stat file %s", path);
+	if ((fd = p_open(path, O_RDONLY)) < 0) {
+		giterr_set(GITERR_OS, "Failed to read file '%s': %s", path, strerror(errno));
+		return (errno == ENOENT) ? GIT_ENOTFOUND : -1;
+	}
 
-	if (S_ISDIR(st.st_mode))
-		return git__throw(GIT_ERROR, "Can't read a dir into a buffer");
+	if (p_fstat(fd, &st) < 0 || S_ISDIR(st.st_mode) || !git__is_sizet(st.st_size+1))
+		return -1;
 
 	/*
 	 * If we were given a time, we only want to read the file if it
 	 * has been modified.
 	 */
 	if (mtime != NULL && *mtime >= st.st_mtime)
-		return GIT_SUCCESS;
+		return 0;
 
 	if (mtime != NULL)
 		*mtime = st.st_mtime;
-	if (!git__is_sizet(st.st_size+1))
-		return git__throw(GIT_ERROR, "Failed to read file `%s`. An error occured while calculating its size", path);
 
 	len = (size_t) st.st_size;
 
-	if ((fd = p_open(path, O_RDONLY)) < 0)
-		return git__throw(GIT_EOSERR, "Failed to open %s for reading", path);
-
-	if ((buff = git__malloc(len + 1)) == NULL) {
-		p_close(fd);
-		return GIT_ENOMEM;
-	}
+	buff = git__malloc(len + 1);
+	GITERR_CHECK_ALLOC(buff);
 
 	if (p_read(fd, buff, len) < 0) {
+		giterr_set(GITERR_OS, "Failed to read descriptor for %s: %s",
+			path, strerror(errno));
+
 		p_close(fd);
 		git__free(buff);
-		return git__throw(GIT_ERROR, "Failed to read file `%s`", path);
+		return -1;
 	}
+
 	buff[len] = '\0';
 
 	p_close(fd);
 
 	if (mtime != NULL)
 		*mtime = st.st_mtime;
+
 	if (updated != NULL)
 		*updated = 1;
 
 	obj->data = buff;
 	obj->len = len;
 
-	return GIT_SUCCESS;
+	return 0;
 }
 
 int git_futils_readbuffer(git_fbuffer *obj, const char *path)
@@ -202,7 +213,7 @@ int git_futils_mkdir_r(const char *path, const char *base, const mode_t mode)
 		pp += root_path_offset; /* On Windows, will skip the drive name (eg. C: or D:) */
 
 	while (error == GIT_SUCCESS && (sp = strchr(pp, '/')) != NULL) {
-		if (sp != pp && git_path_isdir(make_path.ptr) < GIT_SUCCESS) {
+		if (sp != pp && git_path_isdir(make_path.ptr) == false) {
 			*sp = 0;
 			error = p_mkdir(make_path.ptr, mode);
 
@@ -235,7 +246,7 @@ static int _rmdir_recurs_foreach(void *opaque, git_buf *path)
 	int error = GIT_SUCCESS;
 	int force = *(int *)opaque;
 
-	if (git_path_isdir(path->ptr) == GIT_SUCCESS) {
+	if (git_path_isdir(path->ptr) == true) {
 		error = git_path_direach(path, _rmdir_recurs_foreach, opaque);
 		if (error < GIT_SUCCESS)
 			return git__rethrow(error, "Failed to remove directory `%s`", path->ptr);
@@ -277,7 +288,7 @@ int git_futils_find_global_file(git_buf *path, const char *filename)
 	if ((error = git_buf_joinpath(path, home, filename)) < GIT_SUCCESS)
 		return error;
 
-	if (git_path_exists(path->ptr) < GIT_SUCCESS) {
+	if (git_path_exists(path->ptr) == false) {
 		git_buf_clear(path);
 		return GIT_ENOTFOUND;
 	}
@@ -379,7 +390,7 @@ int git_futils_find_system_file(git_buf *path, const char *filename)
 	if (git_buf_joinpath(path, "/etc", filename) < GIT_SUCCESS)
 		return git_buf_lasterror(path);
 
-	if (git_path_exists(path->ptr) == GIT_SUCCESS)
+	if (git_path_exists(path->ptr) == true)
 		return GIT_SUCCESS;
 
 	git_buf_clear(path);

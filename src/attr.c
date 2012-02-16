@@ -245,7 +245,7 @@ int git_attr_cache__push_file(
 		cache_key += strlen(git_repository_workdir(repo));
 
 	file = git_hashtable_lookup(cache->files, cache_key);
-	if (file == NULL && git_path_exists(filename) == GIT_SUCCESS) {
+	if (file == NULL && git_path_exists(filename) == true) {
 		if ((error = git_attr_file__new(&file)) == GIT_SUCCESS) {
 			if ((error = loader(repo, filename, file)) < GIT_SUCCESS) {
 				git_attr_file__free(file);

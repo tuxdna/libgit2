@@ -112,21 +112,21 @@ extern int git_path_fromurl(git_buf *local_path_out, const char *file_url);
 
 /**
  * Check if a file exists and can be accessed.
- * @return GIT_SUCCESS if file exists, < 0 otherwise.
+ * @return true or false
  */
-extern int git_path_exists(const char *path);
+extern bool git_path_exists(const char *path);
 
 /**
  * Check if the given path points to a directory.
- * @return GIT_SUCCESS if it is a directory, < 0 otherwise.
+ * @return true or false
  */
-extern int git_path_isdir(const char *path);
+extern bool git_path_isdir(const char *path);
 
 /**
  * Check if the given path points to a regular file.
- * @return GIT_SUCCESS if it is a regular file, < 0 otherwise.
+ * @return true or false
  */
-extern int git_path_isfile(const char *path);
+extern bool git_path_isfile(const char *path);
 
 /**
  * Check if the given path contains the given subdirectory.
@@ -134,9 +134,9 @@ extern int git_path_isfile(const char *path);
  * @param parent Directory path that might contain subdir
  * @param subdir Subdirectory name to look for in parent
  * @param append_if_exists If true, then subdir will be appended to the parent path if it does exist
- * @return GIT_SUCCESS if subdirectory exists, < 0 otherwise.
+ * @return true if subdirectory exists, false otherwise.
  */
-extern int git_path_contains_dir(git_buf *parent, const char *subdir, int append_if_exists);
+extern bool git_path_contains_dir(git_buf *parent, const char *subdir, int append_if_exists);
 
 /**
  * Check if the given path contains the given file.
@@ -144,9 +144,9 @@ extern int git_path_contains_dir(git_buf *parent, const char *subdir, int append
  * @param dir Directory path that might contain file
  * @param file File name to look for in parent
  * @param append_if_exists If true, then file will be appended to the path if it does exist
- * @return GIT_SUCCESS if file exists, < 0 otherwise.
+ * @return true if file exists, false otherwise.
  */
-extern int git_path_contains_file(git_buf *dir, const char *file, int append_if_exists);
+extern bool git_path_contains_file(git_buf *dir, const char *file, int append_if_exists);
 
 /**
  * Clean up path, prepending base if it is not already rooted.
