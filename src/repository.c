@@ -78,20 +78,21 @@ void git_repository_free(git_repository *repo)
  *
  * Open a repository object from its path
  */
-static int quickcheck_repository_dir(git_buf *repository_path)
+static bool valid_repository_path(git_buf *repository_path)
 {
 	/* Check OBJECTS_DIR first, since it will generate the longest path name */
 	if (git_path_contains_dir(repository_path, GIT_OBJECTS_DIR, 0) == false)
-		return GIT_ERROR;
+		return false;
 
 	/* Ensure HEAD file exists */
 	if (git_path_contains_file(repository_path, GIT_HEAD_FILE, 0) == false)
-		return GIT_ERROR;
+		return false;
 
+	/* Ensure that the refs folder exists */
 	if (git_path_contains_dir(repository_path, GIT_REFS_DIR, 0) == false)
-		return GIT_ERROR;
+		return false;
 
-	return GIT_SUCCESS;
+	return true;
 }
 
 
@@ -153,55 +154,46 @@ static int load_workdir(git_repository *repo)
 
 int git_repository_open(git_repository **repo_out, const char *path)
 {
-	int error = GIT_SUCCESS;
 	git_buf path_buf = GIT_BUF_INIT;
 	git_repository *repo = NULL;
 
-	error = git_path_prettify_dir(&path_buf, path, NULL);
-	if (error < GIT_SUCCESS)
-		goto cleanup;
+	if (git_path_prettify_dir(&path_buf, path, NULL) < 0)
+		return -1;
 
 	/**
 	 * Check if the path we've been given is actually the path
 	 * of the working dir, by testing if it contains a `.git`
 	 * folder inside of it.
 	 */
-	git_path_contains_dir(&path_buf, GIT_DIR, 1); /* append on success */
+	(void)git_path_contains_dir(&path_buf, GIT_DIR, 1); /* append on success */
 	/* ignore error, since it just means `path/.git` doesn't exist */
 
-	if (quickcheck_repository_dir(&path_buf) < GIT_SUCCESS) {
-		error = git__throw(GIT_ENOTAREPO,
+	if (valid_repository_path(&path_buf) == false) {
+		giterr_set(GITERR_REPOSITORY,
 			"The given path (%s) is not a valid Git repository", git_buf_cstr(&path_buf));
-		goto cleanup;
+		git_buf_free(&path_buf);
+		return GIT_ENOTFOUND;
 	}
 
 	repo = repository_alloc();
-	if (repo == NULL) {
-		error = GIT_ENOMEM;
-		goto cleanup;
-	}
+	GITERR_CHECK_ALLOC(repo);
 
 	repo->path_repository = git_buf_detach(&path_buf);
-	if (repo->path_repository == NULL) {
-		error = GIT_ENOMEM;
-		goto cleanup;
-	}
+	GITERR_CHECK_ALLOC(repo->path_repository);
 
-	error = load_config_data(repo);
-	if (error < GIT_SUCCESS)
+	if (load_config_data(repo) < 0)
 		goto cleanup;
 
-	error = load_workdir(repo);
-	if (error < GIT_SUCCESS)
+	if (load_workdir(repo) < 0)
 		goto cleanup;
 
 	*repo_out = repo;
-	return GIT_SUCCESS;
+	return 0;
 
  cleanup:
 	git_repository_free(repo);
 	git_buf_free(&path_buf);
-	return error;
+	return -1;
 }
 
 static int load_config(

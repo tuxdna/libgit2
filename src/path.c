@@ -1,5 +1,3 @@
-/*
- * Copyright (C) 2009-2012 the libgit2 contributors
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -185,34 +183,36 @@ int git_path_root(const char *path)
 
 int git_path_prettify(git_buf *path_out, const char *path, const char *base)
 {
-	int  error = GIT_SUCCESS;
 	char buf[GIT_PATH_MAX];
 
+	assert(path && path_out);
 	git_buf_clear(path_out);
 
 	/* construct path if needed */
 	if (base != NULL && git_path_root(path) < 0) {
-		if ((error = git_buf_joinpath(path_out, base, path)) < GIT_SUCCESS)
-			return error;
+		if (git_buf_joinpath(path_out, base, path) < 0)
+			return -1;
+
 		path = path_out->ptr;
 	}
 
-	if (path == NULL || p_realpath(path, buf) == NULL)
-		error = GIT_EOSERR;
-	else
-		error = git_buf_sets(path_out, buf);
+	if (p_realpath(path, buf) == NULL) {
+		giterr_set(GITERR_OS, "Failed to resolve path '%s': %s", path, strerror(errno));
+		return -1;
+	}
 
-	return error;
+	if (git_buf_sets(path_out, buf) < 0)
+		return -1;
+
+	return 0;
 }
 
 int git_path_prettify_dir(git_buf *path_out, const char *path, const char *base)
 {
-	int error = git_path_prettify(path_out, path, base);
+	if (git_path_prettify(path_out, path, base) < 0)
+		return -1;
 
-	if (error == GIT_SUCCESS)
-		error = git_path_to_dir(path_out);
-
-	return error;
+	return git_path_to_dir(path_out);
 }
 
 int git_path_to_dir(git_buf *path)
