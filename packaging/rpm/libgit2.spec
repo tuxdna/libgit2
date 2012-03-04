@@ -87,8 +87,9 @@ make %{?_smp_mflags}
 %{_libdir}/pkgconfig/libgit2.pc
 
 %changelog
-* Tue Mar 04 2012 tuxdna@gmail.com
+* Tue Mar 04 2012 Saleem Ansari <tuxdna@gmail.com> - 0.16.0-1
 - Update to version 0.16.0 
+
 * Tue Jan 31 2012 jengelh@medozas.de
 - Provide pkgconfig symbols
 * Thu Oct 27 2011 saschpe@suse.de
